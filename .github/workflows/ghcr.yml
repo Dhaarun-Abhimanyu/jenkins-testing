@@ -1,0 +1,56 @@
+name: Build and Push Express Image to GHCR
+
+on:
+  push:
+    branches:
+      - main # Targets the main branch
+
+jobs:
+  build-and-notify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Necessary for pushing to ghcr.io
+
+    env:
+      REGISTRY: ghcr.io
+      # IMAGE_NAME automatically becomes 'user/repo'
+      IMAGE_NAME: ${{ github.repository }} 
+      TAG: ${{ github.sha }} # Unique tag based on the commit
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }} 
+          password: ${{ secrets.GITHUB_TOKEN }} # Secure, auto-generated token
+
+      - name: Build and Push Docker image to GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: . # Uses your Dockerfile in the root
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Send webhook notification to Jenkins
+        env:
+          # Your custom secret for the Jenkins endpoint
+          WEBHOOK_URL: ${{ secrets.JENKINS_WEBHOOK_URL }} 
+        run: |
+          # The exact image tag Jenkins needs to pull
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          
+          echo "Sending deployment notification to Jenkins..."
+
+          curl -X POST -H "Content-Type: application/json" \
+            -d "{\"status\":\"success\", \"image_tag\":\"$IMAGE_TAG\"}" \
+            "$WEBHOOK_URL"
